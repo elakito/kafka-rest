@@ -117,6 +117,14 @@ public abstract class ConsumerState<KafkaK, KafkaV, ClientK, ClientV>
   public void close() {
     lock.writeLock().lock();
     try {
+      // terminate any active subscription task
+      for (ConsumerTopicState state : topics.values()) {
+        ConsumerSubscriptionReadTask task = state.clearSubscriptionTask();
+        if (task != null) {
+          task.terminate();
+        }
+      }
+
       consumer.shutdown();
       // Marks this state entry as no longer valid because the consumer group is being destroyed.
       consumer = null;
@@ -232,5 +240,4 @@ public abstract class ConsumerState<KafkaK, KafkaV, ClientK, ClientV>
     }
     return result;
   }
-
 }

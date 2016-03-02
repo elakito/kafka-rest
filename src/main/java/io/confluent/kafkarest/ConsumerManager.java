@@ -18,6 +18,7 @@ package io.confluent.kafkarest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -29,6 +30,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -72,6 +74,9 @@ public class ConsumerManager {
   // A few other operations, like commit offsets and closing a consumer can't be interleaved, but
   // they're also comparatively rare. These are executed serially in a dedicated thread.
   private final ExecutorService executor;
+  // REVISIT this is for demo purpose for now.
+  private final ScheduledExecutorService subscriberExecutor;
+  
   private ConsumerFactory consumerFactory;
   private final PriorityQueue<ConsumerState> consumersByExpiration =
       new PriorityQueue<ConsumerState>();
@@ -91,6 +96,7 @@ public class ConsumerManager {
     }
     nextWorker = new AtomicInteger(0);
     this.executor = Executors.newFixedThreadPool(1);
+    this.subscriberExecutor = Executors.newScheduledThreadPool(config.getInt(KafkaRestConfig.CONSUMER_THREADS_CONFIG));
     this.consumerFactory = null;
     this.expirationThread = new ExpirationThread();
     this.expirationThread.start();
@@ -268,6 +274,66 @@ public class ConsumerManager {
           }
         }
     );
+  }
+
+  public interface SubscriptionReadCallback<K, V> {
+    public void onRecord(ConsumerRecord<K, V> record) throws IOException;
+    public void onError(Exception e);
+  }
+
+  public <KafkaK, KafkaV, ClientK, ClientV>
+  void subscribeTopic(final String group, final String instance, final String topic,
+                      Class<? extends ConsumerState<KafkaK, KafkaV, ClientK, ClientV>> consumerStateType,
+                      final SubscriptionReadCallback callback) {
+    final ConsumerState state;
+    try {
+      state = getConsumerInstance(group, instance);
+    } catch (RestNotFoundException e) {
+      callback.onError(e);
+      return;
+    }
+
+    if (!consumerStateType.isInstance(state)) {
+      callback.onError(Errors.consumerFormatMismatch());
+      return;
+    }
+
+    // Consumer will try reading even if it doesn't exist, so we need to check this explicitly.
+    if (!mdObserver.topicExists(topic)) {
+      callback.onError(Errors.topicNotFoundException());
+      return;
+    }
+
+    //TODO use the configurable interval and timeout 
+    ConsumerSubscriptionReadTask subscription = 
+      new ConsumerSubscriptionReadTask(state, topic,
+                                       new ConsumerWorkerSubscriptionReadCallback<ClientK, ClientV>() {
+                                         @Override
+                                         public void onRecord(ConsumerRecord<ClientK, ClientV> record) throws IOException {
+                                           callback.onRecord(record);
+                                         }
+
+                                         @Override
+                                         public void onError(Exception e) {
+                                           Exception responseException = e;
+                                           if (!(e instanceof RestException)) {
+                                             responseException = Errors.kafkaErrorException(e);
+                                           }
+                                           callback.onError(responseException);
+                                         }
+                                       },
+                                       subscriberExecutor, 1000, 1000);
+    subscription.schedule();
+  }
+
+  public void deleteSubscription(final String group, final String instance, final String topic) {
+    log.debug("Deleting subscription " + instance + " in group " + group + " for topic " + topic);
+    final ConsumerState state = getConsumerInstance(group, instance);
+    final ConsumerTopicState topicState = state.getOrCreateTopicState(topic);
+    final ConsumerSubscriptionReadTask task = topicState.clearSubscriptionTask();
+    if (task != null) {
+      task.terminate();
+    }
   }
 
   public interface CommitCallback {

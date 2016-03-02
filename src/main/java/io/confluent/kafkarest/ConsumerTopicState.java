@@ -40,6 +40,8 @@ public class ConsumerTopicState<KafkaK, KafkaV, ClientK, ClientV> {
   // left off, including accounting for response size limits
   private ConsumerReadTask failedTask;
 
+  private ConsumerSubscriptionReadTask subscription;
+
   public ConsumerTopicState(KafkaStream<KafkaK, KafkaV> stream) {
     this.stream = stream;
     this.consumedOffsets = new HashMap<Integer, Long>();
@@ -78,5 +80,15 @@ public class ConsumerTopicState<KafkaK, KafkaV, ClientK, ClientV> {
 
   public void setFailedTask(ConsumerReadTask failedTask) {
     this.failedTask = failedTask;
+  }
+  
+  public void setSubscriptionTask(ConsumerSubscriptionReadTask subscription) {
+    this.subscription = subscription;
+  }
+
+  public ConsumerSubscriptionReadTask clearSubscriptionTask() {
+    ConsumerSubscriptionReadTask t = subscription;
+    subscription = null;
+    return t;
   }
 }
