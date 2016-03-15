@@ -29,6 +29,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 class ConsumerSubscriptionReadTask<KafkaK, KafkaV, ClientK, ClientV> {
+  private static final Logger log = LoggerFactory.getLogger(ConsumerSubscriptionReadTask.class);
+
   final private ConsumerState parent;
   private ConsumerTopicState topicState;
   final private ConsumerWorkerSubscriptionReadCallback<ClientK, ClientV> callback;
@@ -36,7 +38,8 @@ class ConsumerSubscriptionReadTask<KafkaK, KafkaV, ClientK, ClientV> {
   private ConsumerRecord<ClientK, ClientV> failedRecord;
   final private long interval;
   final private long timeout;
-
+  private long nextinterval;
+  
   private ReadTask task;
 
   public ConsumerSubscriptionReadTask(ConsumerState parent, String topic, 
@@ -46,6 +49,7 @@ class ConsumerSubscriptionReadTask<KafkaK, KafkaV, ClientK, ClientV> {
     this.callback = callback;
     this.executor = executor;
     this.interval = interval;
+    this.nextinterval = interval;
     this.timeout = timeout;
     try {
       topicState = parent.getOrCreateTopicState(topic);
@@ -57,6 +61,7 @@ class ConsumerSubscriptionReadTask<KafkaK, KafkaV, ClientK, ClientV> {
       topicState.setSubscriptionTask(this);
     } catch (RestException e) {
       // can't subscribe
+      log.error("Failed to subscribe topic" + e);
     }
   }
 
@@ -94,6 +99,8 @@ class ConsumerSubscriptionReadTask<KafkaK, KafkaV, ClientK, ClientV> {
               callback.onRecord(r);
             } catch (IOException e) {
               failedRecord = r;
+              log.error("Failed to broadcast", e);
+              break;
             }          
           } catch (RestException e) {
             callback.onError(e);
@@ -101,7 +108,15 @@ class ConsumerSubscriptionReadTask<KafkaK, KafkaV, ClientK, ClientV> {
         }
       } finally {
         if (!terminated) {
-          schedule(interval);
+          if (failedRecord == null) {
+            nextinterval = interval;
+          } else if (nextinterval < Long.MAX_VALUE) {
+            nextinterval <<= 1;
+            if (nextinterval < 0) {
+              nextinterval = Long.MAX_VALUE;
+            }
+          }
+          schedule(nextinterval);
         }
       }
     }
