@@ -23,4 +23,5 @@ import io.confluent.kafkarest.entities.ConsumerRecord;
 public interface ConsumerWorkerSubscriptionReadCallback<K, V> {
   public void onRecord(ConsumerRecord<K, V> record) throws IOException ;
   public void onError(Exception e);
+  public void onCompletion();
 }

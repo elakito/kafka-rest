@@ -116,6 +116,8 @@ class ConsumerSubscriptionReadTask<KafkaK, KafkaV, ClientK, ClientV> {
               nextinterval = Long.MAX_VALUE;
             }
           }
+          //TODO only increase the interval up to the consumer timeout value
+          callback.onCompletion();
           schedule(nextinterval);
         }
       }

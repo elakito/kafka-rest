@@ -321,6 +321,11 @@ public class ConsumerManager {
                                            }
                                            callback.onError(responseException);
                                          }
+
+                                        @Override
+                                        public void onCompletion() {
+                                          updateExpiration(state);
+                                        }
                                        },
                                        subscriberExecutor, 1000, 1000);
     subscription.schedule();

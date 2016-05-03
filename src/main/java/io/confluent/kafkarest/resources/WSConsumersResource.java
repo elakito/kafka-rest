@@ -27,8 +27,6 @@ import javax.ws.rs.Path;
 import javax.ws.rs.PathParam;
 import javax.ws.rs.Produces;
 import javax.ws.rs.QueryParam;
-import javax.ws.rs.container.AsyncResponse;
-import javax.ws.rs.container.Suspended;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 
@@ -39,8 +37,6 @@ import io.confluent.kafkarest.ConsumerState;
 import io.confluent.kafkarest.Context;
 import io.confluent.kafkarest.JsonConsumerState;
 import io.confluent.kafkarest.Versions;
-import io.confluent.kafkarest.ConsumerManager.ReadCallback;
-import io.confluent.kafkarest.ConsumerManager.SubscriptionReadCallback;
 import io.confluent.kafkarest.entities.ConsumerRecord;
 import io.confluent.rest.annotations.PerformanceMetric;
 
