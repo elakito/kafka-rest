@@ -133,7 +133,7 @@ public class KafkaRestConfig extends RestConfig {
 
   private static final String METRICS_JMX_PREFIX_DEFAULT_OVERRIDE = "kafka.rest";
 
-  private static final ConfigDef config;
+  protected static final ConfigDef config;
 
   static {
     config = baseConfigDef()
