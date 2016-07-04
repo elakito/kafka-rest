@@ -150,8 +150,8 @@ public class WSConsumersResource {
       new ConsumerManager.SubscriptionReadCallback<ClientK, ClientV>() {
 
         @Override
-        public void onRecord(ConsumerRecord<ClientK, ClientV> record) throws IOException {
-          writeValue(httpResponse, record);
+        public void onRecords(List<? extends ConsumerRecord<ClientK, ClientV>> records) throws IOException {
+          writeValue(httpResponse, records);
         }
 
         @Override

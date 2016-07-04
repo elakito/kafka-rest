@@ -277,7 +277,7 @@ public class ConsumerManager {
   }
 
   public interface SubscriptionReadCallback<K, V> {
-    public void onRecord(ConsumerRecord<K, V> record) throws IOException;
+    public void onRecords(List<? extends ConsumerRecord<K, V>> records) throws IOException;
     public void onError(Exception e);
   }
 
@@ -309,8 +309,8 @@ public class ConsumerManager {
       new ConsumerSubscriptionReadTask(state, topic,
                                        new ConsumerWorkerSubscriptionReadCallback<ClientK, ClientV>() {
                                          @Override
-                                         public void onRecord(ConsumerRecord<ClientK, ClientV> record) throws IOException {
-                                           callback.onRecord(record);
+                                         public void onRecords(List<? extends ConsumerRecord<ClientK, ClientV>> records) throws IOException {
+                                           callback.onRecords(records);
                                          }
 
                                          @Override

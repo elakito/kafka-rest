@@ -17,11 +17,12 @@
 package io.confluent.kafkarest;
 
 import java.io.IOException;
+import java.util.List;
 
 import io.confluent.kafkarest.entities.ConsumerRecord;
 
 public interface ConsumerWorkerSubscriptionReadCallback<K, V> {
-  public void onRecord(ConsumerRecord<K, V> record) throws IOException ;
+  public void onRecords(List<? extends ConsumerRecord<K, V>> records) throws IOException ;
   public void onError(Exception e);
   public void onCompletion();
 }

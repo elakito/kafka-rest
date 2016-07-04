@@ -19,6 +19,8 @@ import io.confluent.kafkarest.entities.ConsumerRecord;
 import io.confluent.rest.exceptions.RestException;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
@@ -96,7 +98,7 @@ class ConsumerSubscriptionReadTask<KafkaK, KafkaV, ClientK, ClientV> {
           try {
             ConsumerRecord<ClientK, ClientV> r = getNextRecord();
             try {
-              callback.onRecord(r);
+              callback.onRecords(Collections.singletonList(r));
             } catch (IOException e) {
               failedRecord = r;
               log.error("Failed to broadcast", e);
