@@ -21,10 +21,12 @@ import io.confluent.rest.exceptions.RestException;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.List;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
 import kafka.consumer.ConsumerIterator;
+import kafka.consumer.ConsumerTimeoutException;
 import kafka.message.MessageAndMetadata;
 
 import org.slf4j.Logger;
@@ -34,31 +36,38 @@ class ConsumerSubscriptionReadTask<KafkaK, KafkaV, ClientK, ClientV> {
   private static final Logger log = LoggerFactory.getLogger(ConsumerSubscriptionReadTask.class);
 
   final private ConsumerState parent;
+  private final long maxResponseBytes;
   private ConsumerTopicState topicState;
   final private ConsumerWorkerSubscriptionReadCallback<ClientK, ClientV> callback;
   final private ScheduledExecutorService executor;
-  private ConsumerRecord<ClientK, ClientV> failedRecord;
+  private List<ConsumerRecord<ClientK, ClientV>> failedRecords;
+  private List<ConsumerRecord<ClientK, ClientV>> bufferedRecords;
   final private long interval;
   final private long timeout;
+  private long bytesConsumed = 0;
   private long nextinterval;
   
   private ReadTask task;
 
-  public ConsumerSubscriptionReadTask(ConsumerState parent, String topic, 
+  public ConsumerSubscriptionReadTask(ConsumerState parent, String topic, long maxBytes,
                                       ConsumerWorkerSubscriptionReadCallback callback,
                                       ScheduledExecutorService executor, int interval, long timeout) {
     this.parent = parent;
+    this.maxResponseBytes = Math.min(
+            maxBytes,
+            parent.getConfig().getLong(KafkaRestConfig.CONSUMER_REQUEST_MAX_BYTES_CONFIG));
     this.callback = callback;
     this.executor = executor;
     this.interval = interval;
     this.nextinterval = interval;
     this.timeout = timeout;
+    this.bufferedRecords = new ArrayList<ConsumerRecord<ClientK, ClientV>>();
     try {
       topicState = parent.getOrCreateTopicState(topic);
       ConsumerSubscriptionReadTask previousTask = topicState.clearSubscriptionTask();
       if (previousTask != null) {
         previousTask.terminate();
-        failedRecord = previousTask.clearFailedRecord();
+        failedRecords = previousTask.clearFailedRecords();
       }
       topicState.setSubscriptionTask(this);
     } catch (RestException e) {
@@ -67,9 +76,9 @@ class ConsumerSubscriptionReadTask<KafkaK, KafkaV, ClientK, ClientV> {
     }
   }
 
-  ConsumerRecord<ClientK, ClientV> clearFailedRecord() {
-    ConsumerRecord<ClientK, ClientV> r = failedRecord;
-    failedRecord = null;
+  List<ConsumerRecord<ClientK, ClientV>> clearFailedRecords() {
+    List<ConsumerRecord<ClientK, ClientV>> r = failedRecords;
+    failedRecords = null;
     return r;
   }
 
@@ -93,24 +102,52 @@ class ConsumerSubscriptionReadTask<KafkaK, KafkaV, ClientK, ClientV> {
     @Override
     public void run() {
       try {
-        // TODO aggregate records up to some limit as in the normal topic reader
-        while(!terminated && hasNextRecord()) {
+        List<ConsumerRecord<ClientK, ClientV>> rs = clearFailedRecords();
+        if (rs != null) {
           try {
-            ConsumerRecord<ClientK, ClientV> r = getNextRecord();
+            callback.onRecords(rs);
+          } catch (IOException e) {
+            failedRecords = rs;
+            log.error("Failed to re-broadcast", e);
+          }
+        } else {
+          while(!terminated && iter.hasNext()) {
             try {
-              callback.onRecords(Collections.singletonList(r));
-            } catch (IOException e) {
-              failedRecord = r;
-              log.error("Failed to broadcast", e);
-              break;
-            }          
-          } catch (RestException e) {
-            callback.onError(e);
+              MessageAndMetadata<KafkaK, KafkaV> msg = iter.next();
+              ConsumerRecordAndSize<ClientK, ClientV> recordAndSize = parent.createConsumerRecord(msg);
+              bufferedRecords.add(recordAndSize.getRecord());
+              bytesConsumed += recordAndSize.getSize();
+              // flush the buffered records if the size exceeds the limit
+              if (bytesConsumed >= maxResponseBytes) {
+                try {
+                  callback.onRecords(bufferedRecords);
+                  bufferedRecords.clear();
+                  bytesConsumed = 0;
+                } catch (IOException e) {
+                  failedRecords = rs;
+                  log.error("Failed to broadcast", e);
+                  break;
+                }
+              }
+            } catch (RestException e) {
+              callback.onError(e);
+            }
           }
         }
       } finally {
+        if (!bufferedRecords.isEmpty()) {
+          try {
+            callback.onRecords(bufferedRecords);
+            bufferedRecords.clear();
+            bytesConsumed = 0;
+          } catch (IOException e) {
+            failedRecords = bufferedRecords;
+            log.error("Failed to broadcast", e);
+          }
+        }
+
         if (!terminated) {
-          if (failedRecord == null) {
+          if (failedRecords == null) {
             nextinterval = interval;
           } else if (nextinterval < Long.MAX_VALUE) {
             nextinterval <<= 1;
@@ -124,19 +161,7 @@ class ConsumerSubscriptionReadTask<KafkaK, KafkaV, ClientK, ClientV> {
         }
       }
     }
-    private boolean hasNextRecord() {
-      return failedRecord != null || iter.hasNext();
-    }
 
-    private ConsumerRecord<ClientK, ClientV> getNextRecord() {
-      ConsumerRecord<ClientK, ClientV> r = clearFailedRecord();
-      if (r == null) {
-        MessageAndMetadata<KafkaK, KafkaV> msg = iter.next();
-        ConsumerRecordAndSize<ClientK, ClientV> recordAndSize = parent.createConsumerRecord(msg);
-        r = recordAndSize.getRecord();
-      }
-      return r;
-    }
     void schedule(long delay) {
       executor.schedule(this, delay, TimeUnit.MILLISECONDS);
     }

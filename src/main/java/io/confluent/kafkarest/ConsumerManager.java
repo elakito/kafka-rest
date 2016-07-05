@@ -306,7 +306,7 @@ public class ConsumerManager {
 
     //TODO use the configurable interval and timeout 
     ConsumerSubscriptionReadTask subscription = 
-      new ConsumerSubscriptionReadTask(state, topic,
+      new ConsumerSubscriptionReadTask(state, topic, Long.MAX_VALUE,
                                        new ConsumerWorkerSubscriptionReadCallback<ClientK, ClientV>() {
                                          @Override
                                          public void onRecords(List<? extends ConsumerRecord<ClientK, ClientV>> records) throws IOException {
